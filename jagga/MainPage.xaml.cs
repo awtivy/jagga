@@ -3,6 +3,7 @@ using System;
 using Windows.Devices.Gpio;
 using Windows.Media.Core;
 using Windows.Media.Playback;
+using Windows.Storage;
 using Windows.UI.Xaml;
 using Windows.UI.Xaml.Controls;
 
@@ -17,41 +18,137 @@ namespace jagga
 
     public sealed partial class MainPage : Page
     {
-        private GpioPin _leftHead;
-        private GpioPin _rightHead;
-        private GpioPin _leftTurn;
-        private GpioPin _rightTurn;
+
+
+        //Define GPIO pins for each relay
+        private static int lefthead = 6, righthead = 6, leftturn = 6, rightturn = 6, topstrip = 6, license = 6, extra1 = 8, extra2 = 10;
+
+
+        private GpioPin[] lp = new GpioPin[8];
+        private static int[] gp = new int[8] { lefthead, righthead, leftturn, rightturn, topstrip, license, extra1, extra2 };
         private GpioPinValue _value;
 
+        private DispatcherTimer horntimer, songtimer, schedule;
 
-        private DispatcherTimer _timer, _schedule;
-        private int FlashIntervalSec = 1;
-        private int ScheduleIntervalMin = 60;
+        //Define variables for horn
+        private static int HornFlashIntMS = 250, HornLengthSec = 5, HornLoops = HornLengthSec * 1000 / HornLengthSec;
+        static MediaSource h = MediaSource.CreateFromUri(new Uri("ms-appx:///Assets/horn.mp3"));
+
+
+        //define variables for songs
+        private static int SongFlashIntMS = 500, SongLengthSec = 30, SongLoops = SongLengthSec * 1000 / SongFlashIntMS;
+        private static int ScheduleIntervalMin = 60;
         private int _loop = 0;
+
+        private MediaSource[] sources;
+
         
-        private MediaPlayer truckSound;
+        private MediaPlayer _mediaplayer;
 
         public MainPage()
         {
             this.InitializeComponent();
-            _schedule = new DispatcherTimer();
-            _schedule.Interval = TimeSpan.FromMinutes(ScheduleIntervalMin);
-            _schedule.Tick += Schedule;
 
+            schedule = new DispatcherTimer();
+            schedule.Interval = TimeSpan.FromMinutes(ScheduleIntervalMin);
+            schedule.Tick += Schedule;
 
-            _timer = new DispatcherTimer();
-            _timer.Interval = TimeSpan.FromSeconds(FlashIntervalSec);
-            _timer.Tick += BlinkLights;
+            horntimer = new DispatcherTimer();
+            horntimer.Interval = TimeSpan.FromSeconds(HornFlashIntMS);
+            horntimer.Tick += HornLights;
 
-            truckSound = new MediaPlayer();
-            Uri truckSource = new Uri("ms-appx:///Assets/trucksound.wav");
-            truckSound.Source = MediaSource.CreateFromUri(truckSource);
-            truckSound.AutoPlay = false;
+            songtimer = new DispatcherTimer();
+            songtimer.Interval = TimeSpan.FromSeconds(SongFlashIntMS);
+            songtimer.Tick += HornLights;
+
+            _mediaplayer = new MediaPlayer();
+
+            _mediaplayer.Source = h;
+            _mediaplayer.AutoPlay = false;
             SetupGPIO();
 
-            _schedule.Start();
-            _timer.Start();
-            truckSound.Play();
+            schedule.Start();
+            horntimer.Start();
+            _mediaplayer.Play();
+        }
+
+
+        private void Schedule(object o, object e)
+        {
+            horntimer.Start();
+            _mediaplayer.Source = h;
+            _mediaplayer.Play();
+        }
+
+        private void HornLights(object o, object e)
+        {
+            if(_loop == 0)
+            {
+                Off(lp[righthead]);
+                Off(lp[leftturn]);
+            }
+            if (_loop < HornLoops)
+            {
+                Toggle(lp[lefthead]);
+                Toggle(lp[rightturn]);
+                Toggle(lp[righthead]);
+                Toggle(lp[leftturn]);
+                Toggle(lp[topstrip]);
+                Toggle(lp[license]);
+                _loop++;
+            }
+
+
+            if (_loop >= HornLoops)
+            {
+                horntimer.Stop();
+                _loop = 0;
+                On(lp[lefthead]);
+                On(lp[rightturn]);
+                On(lp[righthead]);
+                On(lp[leftturn]);
+            }
+        }
+        private void SongLights(object o, object e)
+        {
+            if (_loop == 0)
+            {
+                Off(lp[righthead]);
+                Off(lp[leftturn]);
+            }
+            if (_loop < SongLoops)
+            {
+                Toggle(lp[lefthead]);
+                Toggle(lp[rightturn]);
+                Toggle(lp[righthead]);
+                Toggle(lp[leftturn]);
+                Toggle(lp[topstrip]);
+                Toggle(lp[license]);
+                _loop++;
+            }
+
+
+            if (_loop >= SongLoops)
+            {
+                horntimer.Stop();
+                _loop = 0;
+                On(lp[lefthead]);
+                On(lp[rightturn]);
+                On(lp[righthead]);
+                On(lp[leftturn]);
+            }
+        }
+        async void GetSongs()
+        {
+            Windows.Storage.StorageFolder folder = await Windows.ApplicationModel.Package.Current.InstalledLocation.GetFolderAsync("\\Assets\\Songs");
+            var songs = await folder.GetFilesAsync();
+            int i = 0;
+            foreach (var song in songs)
+            {
+                sources[i++] = MediaSource.CreateFromStorageFile(song);
+                
+            }
+
         }
         private void SetupGPIO()
         {
@@ -59,27 +156,23 @@ namespace jagga
             if (gpio == null)
                 return; // GPIO not available on this system
 
-            _leftHead = gpio.OpenPin(6);
-            _leftHead.SetDriveMode(GpioPinDriveMode.Output);
+            for (int i = 0; i < 8; i++)
+            {
+                lp[i] = gpio.OpenPin(gp[i]);
+                lp[i].SetDriveMode(GpioPinDriveMode.Output);
+            }
 
-            _rightHead = gpio.OpenPin(13);
-            _rightHead.SetDriveMode(GpioPinDriveMode.Output);
 
-            _leftTurn = gpio.OpenPin(19);
-            _leftTurn.SetDriveMode(GpioPinDriveMode.Output);
-
-            _rightTurn = gpio.OpenPin(26);
-            _rightTurn.SetDriveMode(GpioPinDriveMode.Output);
         }
 
         private void On(GpioPin pin)
         {
-            pin.Write(GpioPinValue.High);
+            pin.Write(GpioPinValue.Low);
         }
 
         private void Off(GpioPin pin)
         {
-            pin.Write(GpioPinValue.Low);
+            pin.Write(GpioPinValue.High);
         }
 
         private void Toggle(GpioPin pin)
@@ -92,38 +185,5 @@ namespace jagga
 
         }
 
-        private void Schedule(object o, object e)
-        {
-            _timer.Start();
-            truckSound.Play();
-        }
-
-        private void BlinkLights(object o, object e)
-        {
-            if(_loop == 0)
-            {
-                Off(_rightHead);
-                Off(_leftTurn);
-            }
-            if (_loop < 20)
-            {
-                Toggle(_leftHead);
-                Toggle(_rightTurn);
-                Toggle(_rightHead);
-                Toggle(_leftTurn);
-                _loop++;
-            }
-
-
-            if (_loop >=20)
-            {
-                _timer.Stop();
-                _loop = 0;
-                On(_leftHead);
-                On(_rightTurn);
-                On(_rightHead);
-                On(_leftTurn);
-            }
-        }
     }
 }

@@ -107,6 +107,19 @@
     <None Include="jagga_TemporaryKey.pfx" />
   </ItemGroup>
   <ItemGroup>
+    <Content Include="Assets\Horn.mp3" />
+    <Content Include="Assets\s1.mp3" />
+    <Content Include="Assets\s10.mp3" />
+    <Content Include="Assets\s11.mp3" />
+    <Content Include="Assets\s0.mp3" />
+    <Content Include="Assets\s2.mp3" />
+    <Content Include="Assets\s3.mp3" />
+    <Content Include="Assets\s4.mp3" />
+    <Content Include="Assets\s5.mp3" />
+    <Content Include="Assets\s6.mp3" />
+    <Content Include="Assets\s7.mp3" />
+    <Content Include="Assets\s8.mp3" />
+    <Content Include="Assets\s9.mp3" />
     <Content Include="Assets\trucksound.wav">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
@@ -131,7 +144,7 @@
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.NETCore.UniversalWindowsPlatform">
-      <Version>6.0.1</Version>
+      <Version>6.0.2</Version>
     </PackageReference>
   </ItemGroup>
   <ItemGroup>
