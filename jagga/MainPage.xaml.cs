@@ -3,6 +3,7 @@ using System;
 using Windows.Devices.Gpio;
 using Windows.Media.Core;
 using Windows.Media.Playback;
+using Windows.Security.Cryptography;
 using Windows.Storage;
 using Windows.UI.Xaml;
 using Windows.UI.Xaml.Controls;
@@ -21,26 +22,30 @@ namespace jagga
 
 
         //Define GPIO pins for each relay
-        private static int lefthead = 6, righthead = 6, leftturn = 6, rightturn = 6, topstrip = 6, license = 6, extra1 = 8, extra2 = 10;
+        private static int lefthead = 13, righthead = 12, leftturn = 19, rightturn = 16, topstrip = 26, license = 6, extra1 = 21, extra2 = 20;
 
 
         private GpioPin[] lp = new GpioPin[8];
         private static int[] gp = new int[8] { lefthead, righthead, leftturn, rightturn, topstrip, license, extra1, extra2 };
+        private static int lh = 0, rh = 1, lt = 2, rt = 3, ts = 4, ls = 5, e1 = 6, e2 = 6;
         private GpioPinValue _value;
 
         private DispatcherTimer horntimer, songtimer, schedule;
 
         //Define variables for horn
-        private static int HornFlashIntMS = 250, HornLengthSec = 5, HornLoops = HornLengthSec * 1000 / HornLengthSec;
+        private static int HornFlashIntMS = 250, HornLengthSec = 3, HornLoops = HornLengthSec * 1000 / HornFlashIntMS;
         static MediaSource h = MediaSource.CreateFromUri(new Uri("ms-appx:///Assets/horn.mp3"));
 
 
         //define variables for songs
-        private static int SongFlashIntMS = 500, SongLengthSec = 30, SongLoops = SongLengthSec * 1000 / SongFlashIntMS;
-        private static int ScheduleIntervalMin = 60;
-        private int _loop = 0;
+        private int SongFlashIntMS = 500;
+        private static int ScheduleIntervalMin = 30;
+        private int _loop = 0, _sloop =0, randint, songloops = 20;//default value to start with, will check song to adjust this.
+        private TimeSpan songlength;
+        public int songscount = 12;
 
-        private MediaSource[] sources;
+
+        public MediaSource[] sources;
 
         
         private MediaPlayer _mediaplayer;
@@ -54,18 +59,20 @@ namespace jagga
             schedule.Tick += Schedule;
 
             horntimer = new DispatcherTimer();
-            horntimer.Interval = TimeSpan.FromSeconds(HornFlashIntMS);
+            horntimer.Interval = TimeSpan.FromMilliseconds(HornFlashIntMS);
             horntimer.Tick += HornLights;
 
             songtimer = new DispatcherTimer();
-            songtimer.Interval = TimeSpan.FromSeconds(SongFlashIntMS);
-            songtimer.Tick += HornLights;
+            songtimer.Interval = TimeSpan.FromMilliseconds(SongFlashIntMS);
+            songtimer.Tick += SongLights;
 
             _mediaplayer = new MediaPlayer();
 
             _mediaplayer.Source = h;
             _mediaplayer.AutoPlay = false;
+
             SetupGPIO();
+            GetSongs();
 
             schedule.Start();
             horntimer.Start();
@@ -84,17 +91,17 @@ namespace jagga
         {
             if(_loop == 0)
             {
-                Off(lp[righthead]);
-                Off(lp[leftturn]);
+                Off(lp[rh]);
+                Off(lp[lt]);
             }
             if (_loop < HornLoops)
             {
-                Toggle(lp[lefthead]);
-                Toggle(lp[rightturn]);
-                Toggle(lp[righthead]);
-                Toggle(lp[leftturn]);
-                Toggle(lp[topstrip]);
-                Toggle(lp[license]);
+                Toggle(lp[lh]);
+                Toggle(lp[rt]);
+                Toggle(lp[rh]);
+                Toggle(lp[lt]);
+                Toggle(lp[ts]);
+                Toggle(lp[ls]);
                 _loop++;
             }
 
@@ -102,50 +109,71 @@ namespace jagga
             if (_loop >= HornLoops)
             {
                 horntimer.Stop();
+                
+                
                 _loop = 0;
-                On(lp[lefthead]);
-                On(lp[rightturn]);
-                On(lp[righthead]);
-                On(lp[leftturn]);
+                On(lp[lh]);
+                On(lp[rt]);
+                On(lp[rh]);
+                On(lp[lt]);
+
+                randint = (int) (CryptographicBuffer.GenerateRandomNumber() % (songscount-1));
+               
+                _mediaplayer.Source = sources[randint];
+
+                _mediaplayer.AutoPlay = false;
+                _mediaplayer.Play();
+
+                songlength = sources[randint].Duration.Value;
+                songloops = (int) songlength.TotalMilliseconds / SongFlashIntMS;
+                songtimer.Start();
             }
         }
         private void SongLights(object o, object e)
         {
-            if (_loop == 0)
+            if (_sloop == 0)
             {
-                Off(lp[righthead]);
-                Off(lp[leftturn]);
+                Off(lp[rh]);
+                Off(lp[lt]);
             }
-            if (_loop < SongLoops)
+            if (_sloop < songloops)
             {
-                Toggle(lp[lefthead]);
-                Toggle(lp[rightturn]);
-                Toggle(lp[righthead]);
-                Toggle(lp[leftturn]);
-                Toggle(lp[topstrip]);
-                Toggle(lp[license]);
-                _loop++;
+                Toggle(lp[lh]);
+                Toggle(lp[rt]);
+                Toggle(lp[rh]);
+                Toggle(lp[lt]);
+                Toggle(lp[ts]);
+                Toggle(lp[ls]);
+                _sloop++;
             }
 
 
-            if (_loop >= SongLoops)
+            if (_sloop >= songloops)
             {
-                horntimer.Stop();
-                _loop = 0;
-                On(lp[lefthead]);
-                On(lp[rightturn]);
-                On(lp[righthead]);
-                On(lp[leftturn]);
+                songtimer.Stop();
+                _sloop = 0;
+                On(lp[lh]);
+                On(lp[rt]);
+                On(lp[rh]);
+                On(lp[lt]);
+                On(lp[ls]);
+                On(lp[ts]);
+
+                songloops = 20;
             }
         }
         async void GetSongs()
         {
-            Windows.Storage.StorageFolder folder = await Windows.ApplicationModel.Package.Current.InstalledLocation.GetFolderAsync("\\Assets\\Songs");
-            var songs = await folder.GetFilesAsync();
+            Windows.Storage.StorageFolder folder = Windows.ApplicationModel.Package.Current.InstalledLocation;
+            Windows.Storage.StorageFolder fsongs = await folder.GetFolderAsync("Assets\\Songs");
+            var songs = await fsongs.GetFilesAsync();
+            songscount = songs.Count;
+            sources = new MediaSource[songs.Count];
             int i = 0;
-            foreach (var song in songs)
+            foreach (IStorageFile song in songs)
             {
-                sources[i++] = MediaSource.CreateFromStorageFile(song);
+                sources[i] = MediaSource.CreateFromStorageFile(song);
+                await sources[i++].OpenAsync();
                 
             }
 
@@ -167,12 +195,12 @@ namespace jagga
 
         private void On(GpioPin pin)
         {
-            pin.Write(GpioPinValue.Low);
+            pin.Write(GpioPinValue.High);
         }
 
         private void Off(GpioPin pin)
         {
-            pin.Write(GpioPinValue.High);
+            pin.Write(GpioPinValue.Low);
         }
 
         private void Toggle(GpioPin pin)
