@@ -1,10 +1,13 @@
 ﻿
 using System;
+using System.Threading.Tasks;
+using System.Collections.Generic;
 using Windows.Devices.Gpio;
 using Windows.Media.Core;
 using Windows.Media.Playback;
 using Windows.Security.Cryptography;
 using Windows.Storage;
+using Windows.Storage.Search;
 using Windows.UI.Xaml;
 using Windows.UI.Xaml.Controls;
 
@@ -22,28 +25,32 @@ namespace jagga
 
 
         //Define GPIO pins for each relay
-        private static int lefthead = 13, righthead = 12, leftturn = 19, rightturn = 16, topstrip = 26, license = 6, extra1 = 21, extra2 = 20;
+        private static int lefthead = 13, righthead = 12, leftturn = 19, rightturn = 16, topstrip = 26, license = 6, fogmachine = 20, extra = 21;
 
 
         private GpioPin[] lp = new GpioPin[8];
-        private static int[] gp = new int[8] { lefthead, righthead, leftturn, rightturn, topstrip, license, extra1, extra2 };
-        private static int lh = 0, rh = 1, lt = 2, rt = 3, ts = 4, ls = 5, e1 = 6, e2 = 6;
+        private static int[] gp = new int[8] { lefthead, righthead, leftturn, rightturn, topstrip, license, fogmachine, extra };
+        private static int lh = 0, rh = 1, lt = 2, rt = 3, ts = 4, ls = 5, fog = 6, e2 = 7;
         private GpioPinValue _value;
 
-        private DispatcherTimer horntimer, songtimer, schedule;
+        private DispatcherTimer horntimer, songtimer, schedule, fogtimer;
 
         //Define variables for horn
-        private static int HornFlashIntMS = 250, HornLengthSec = 3, HornLoops = HornLengthSec * 1000 / HornFlashIntMS;
+        private static int HornFlashIntMS = 200, HornLengthSec = 8, HornLoops = HornLengthSec * 1000 / HornFlashIntMS;
+
         static MediaSource h = MediaSource.CreateFromUri(new Uri("ms-appx:///Assets/horn.mp3"));
+        private MediaSource horn;
 
 
         //define variables for songs
         private int SongFlashIntMS = 500;
-        private static int ScheduleIntervalMin = 30;
-        private int _loop = 0, _sloop =0, randint, songloops = 20;//default value to start with, will check song to adjust this.
+        private static int ScheduleIntervalMin = 20;
+        private int _loop = 0, _sloop = 0, randint, songloops = 20;//default value to start with, will check song to adjust this.
         private TimeSpan songlength;
         public int songscount = 12;
 
+        //fog
+        private int FogIntMS = 1500;
 
         public MediaSource[] sources;
 
@@ -57,6 +64,10 @@ namespace jagga
             schedule = new DispatcherTimer();
             schedule.Interval = TimeSpan.FromMinutes(ScheduleIntervalMin);
             schedule.Tick += Schedule;
+
+            fogtimer = new DispatcherTimer();
+            fogtimer.Interval = TimeSpan.FromMilliseconds(FogIntMS);
+            fogtimer.Tick += FogMachine;
 
             horntimer = new DispatcherTimer();
             horntimer.Interval = TimeSpan.FromMilliseconds(HornFlashIntMS);
@@ -74,18 +85,29 @@ namespace jagga
             SetupGPIO();
             GetSongs();
 
-            schedule.Start();
-            horntimer.Start();
-            _mediaplayer.Play();
+            schedule.Start(); //Timers do not execute before they wait
+            fogtimer.Start(); //Start fog machine timer so that it turns off after delay
+            Off(lp[fog]);   //Turn on fog machine only the first time manually
+            horntimer.Start();  //Start Horn timer to flash lights
+            _mediaplayer.Play(); //Start to play music first time manually
         }
 
 
         private void Schedule(object o, object e)
         {
-            horntimer.Start();
-            _mediaplayer.Source = h;
-            _mediaplayer.Play();
+            Off(lp[fog]); //Turn on fog machinwe
+            fogtimer.Start(); //Start timer to turn off fog machine
+            horntimer.Start(); //Start timer to flash lights
+            _mediaplayer.Source = horn; //Set media source back to horn
+            _mediaplayer.Play(); //Play the horn track
         }
+        private void FogMachine(object o, object e)
+        {
+            fogtimer.Stop(); //Stop the timer
+            On(lp[fog]);//Turn off fog machine
+        }
+
+
 
         private void HornLights(object o, object e)
         {
@@ -112,6 +134,7 @@ namespace jagga
                 
                 
                 _loop = 0;
+
                 On(lp[lh]);
                 On(lp[rt]);
                 On(lp[rh]);
@@ -125,7 +148,7 @@ namespace jagga
                 _mediaplayer.Play();
 
                 songlength = sources[randint].Duration.Value;
-                songloops = (int) songlength.TotalMilliseconds / SongFlashIntMS;
+                songloops = (int) (songlength.TotalMilliseconds / SongFlashIntMS)-1;
                 songtimer.Start();
             }
         }
@@ -164,13 +187,19 @@ namespace jagga
         }
         async void GetSongs()
         {
-            Windows.Storage.StorageFolder folder = Windows.ApplicationModel.Package.Current.InstalledLocation;
-            Windows.Storage.StorageFolder fsongs = await folder.GetFolderAsync("Assets\\Songs");
+            Windows.Storage.StorageFolder fsongs = Windows.Storage.KnownFolders.MusicLibrary;
+            Windows.Storage.StorageFolder fhorn = await fsongs.GetFolderAsync("Horn");
+            
+            horn = MediaSource.CreateFromStorageFile(await fhorn.GetFileAsync("horn.mp3"));
+
+            
+
             var songs = await fsongs.GetFilesAsync();
+
             songscount = songs.Count;
-            sources = new MediaSource[songs.Count];
+            sources = new MediaSource[songscount];
             int i = 0;
-            foreach (IStorageFile song in songs)
+            foreach (var song in songs)
             {
                 sources[i] = MediaSource.CreateFromStorageFile(song);
                 await sources[i++].OpenAsync();
